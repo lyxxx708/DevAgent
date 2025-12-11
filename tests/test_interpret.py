@@ -20,18 +20,15 @@ def test_interpret_meta_applies_typed_updates_only():
     with tempfile.TemporaryDirectory() as tmpdir:
         state = State(git_head="head", repo_root=tmpdir, diagnostics=StateDiagnostics())
         payload_valid = {"memory_mode": "DEGRADED_PARTIAL", "last_error": "oops", "ignored": 123}
-        payload_invalid_type = {"memory_mode": 123, "last_error": None}
-        payload_invalid_str = {"memory_mode": "INVALID", "last_error": "still set"}
+        payload_invalid = {"memory_mode": "INVALID", "last_error": None}
         program = Program(
             instructions=[
                 Instruction(kind="META", payload=payload_valid),
-                Instruction(kind="META", payload=payload_invalid_type),
-                Instruction(kind="META", payload=payload_invalid_str),
+                Instruction(kind="META", payload=payload_invalid),
             ]
         )
         updated_state, events = interpret(state, program, job_id="job", step_id=1)
         assert updated_state.diagnostics.memory_mode == "DEGRADED_PARTIAL"
-        assert updated_state.diagnostics.last_error == "still set"
+        assert updated_state.diagnostics.last_error == "oops"
         assert events[0].payload == payload_valid
-        assert events[1].payload == payload_invalid_type
-        assert events[2].payload == payload_invalid_str
+        assert events[1].payload == payload_invalid

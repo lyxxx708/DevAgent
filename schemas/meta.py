@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from schemas.memory import MemoryStats
 
@@ -31,7 +31,7 @@ class MetaInputView(BaseModel):
 
 class FocusSpec(BaseModel):
     task_type: str
-    modules: list[str] = []
+    modules: list[str] = Field(default_factory=list)
     only_failing_tests: bool = True
     max_focus_files: int = 20
 

@@ -75,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         planner=planner,
         memory_store=memory_store,
         trace_ledger=trace_ledger,
+        event_store=event_store,
     )
     task_runner = TaskRunner(controller=meta_controller)
 

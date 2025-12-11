@@ -9,11 +9,17 @@ from meta.llm_meta_planner import LLMMetaPlanner
 from schemas.core import Event, Program, State
 from schemas.meta import GoalViewSummary, MetaInputView, StateSummary
 from schemas.views import AgentHints, DecisionInputView, DevAgentMode, GoalView
+from store.event_store import EventStore
 from store.trace_ledger import TraceEntry, TraceLedger
 
 
 class MetaController:
-    """Meta-level orchestrator that wraps DevAgent with planning and tracing."""
+    """Meta-level orchestrator that wraps DevAgent with planning and tracing.
+
+    It builds a MetaInputView from goal context, a lightweight StateSummary derived
+    from recent events, and MemoryStats, then delegates execution to DevAgent while
+    recording trace entries.
+    """
 
     def __init__(
         self,
@@ -21,11 +27,28 @@ class MetaController:
         planner: LLMMetaPlanner,
         memory_store: MemoryStore,
         trace_ledger: TraceLedger,
+        event_store: EventStore,
     ) -> None:
         self.devagent = devagent
         self.planner = planner
         self.memory_store = memory_store
         self.trace_ledger = trace_ledger
+        self.event_store = event_store
+
+    def _build_state_summary(self, job_id: str) -> StateSummary:
+        """Derive a lightweight StateSummary from recent events."""
+
+        recent = self.event_store.recent_for_job(job_id, limit=200)
+        failing_tests_count = 0
+        for evt in recent:
+            if evt.type != "RUN":
+                continue
+            payload = evt.payload or {}
+            exit_code = int(payload.get("exit_code", 0) or 0)
+            if exit_code != 0:
+                failing_tests_count += 1
+
+        return StateSummary(repo_size=0, failing_tests_count=failing_tests_count, key_modules=[])
 
     def _mode_literal(self, mode: DevAgentMode) -> str:
         if mode == DevAgentMode.BOOTSTRAP_LLM_HEAVY:
@@ -47,11 +70,7 @@ class MetaController:
             task_type=goal_view.task_type,
             natural_language_goal=goal_view.natural_language_goal,
         )
-        state_summary = StateSummary(
-            repo_size=0,
-            failing_tests_count=0,
-            key_modules=[],
-        )
+        state_summary = self._build_state_summary(job_id)
         memory_stats = self.memory_store.stats()
 
         meta_input = MetaInputView(

@@ -10,7 +10,6 @@ from memory.reranker import MemoryReranker
 from memory.selector import MemorySelector
 from memory.store import MemoryStore
 from schemas.core import Event, Program, State
-from schemas.memory import MemoryItem
 from schemas.meta import FocusSpec, RerankHints, SelectorProfile
 from schemas.views import (
     AgentHints,
@@ -93,9 +92,14 @@ class DevAgent:
             tests=list(dict.fromkeys(baseline_focus.tests + memory_focus.tests)),
         )
 
-        items: list[MemoryItem] = self.memory_store.query_by_dimensions({}, limit=50)
+        memory_candidates = self.selector.select(
+            profile=selector_profile,
+            filters=extra_filters,
+            limit=50,
+        )
+        memory_items = self.reranker.rerank(memory_candidates, hints=rerank_hints)
         stats = self.memory_store.stats()
-        memory_view = MemoryView(items=items, stats=stats)
+        memory_view = MemoryView(items=memory_items, stats=stats)
 
         decision_input = DecisionInputView(
             state_view=state_view,

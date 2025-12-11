@@ -37,6 +37,7 @@ def build_stack(base_dir: Path) -> TaskRunner:
         planner=planner,
         memory_store=memory_store,
         trace_ledger=trace_ledger,
+        event_store=event_store,
     )
     return TaskRunner(controller=meta_controller)
 

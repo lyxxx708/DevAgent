@@ -35,6 +35,7 @@ def test_repeated_steps_stay_stable():
             planner=planner,
             memory_store=memory_store,
             trace_ledger=trace_ledger,
+            event_store=event_store,
         )
         runner = TaskRunner(controller=controller)
 

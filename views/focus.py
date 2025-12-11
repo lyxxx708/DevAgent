@@ -46,10 +46,9 @@ class LLMFocusInferer:
 class FocusViewBuilder:
     """Builds FocusView from selector/reranker outputs.
 
-    Notes:
-    - Rerank hints may adjust ordering via the MemoryReranker before files/modules/tests are derived.
-    - Current implementation derives files/modules/tests from item dimensions and truncates files using
-      ``spec.max_focus_files``; it does not yet honor ``spec.only_failing_tests`` or ``spec.modules``.
+    Rerank hints may adjust ordering via the MemoryReranker before files/modules/tests are derived. The current
+    implementation derives files/modules/tests from item dimensions (e.g., ``file_path``/``module``/``modules``/``test_path``),
+    truncates files using ``spec.max_focus_files``, and currently ignores ``spec.only_failing_tests`` and ``spec.modules``.
     """
 
     def __init__(self, selector: MemorySelector, reranker: MemoryReranker) -> None:

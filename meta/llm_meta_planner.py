@@ -25,7 +25,9 @@ class LLMMetaPlanner:
     The policy here is deliberately simple and fully deterministic so it can run
     without any external services. It aligns with the schemas defined in
     ``schemas.meta`` and can be replaced later by an LLM-backed planner without
-    changing the public API.
+    changing the public API. This planner is heuristic-only, performs zero
+    network/LLM calls, and biases error_pattern memories when failures are
+    present.
     """
 
     def propose_plan(self, meta_input: MetaInputView) -> MetaPlan:

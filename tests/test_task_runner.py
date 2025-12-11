@@ -37,6 +37,7 @@ def test_task_runner_end_to_end():
             planner=planner,
             memory_store=memory_store,
             trace_ledger=trace_ledger,
+            event_store=event_store,
         )
 
         runner = TaskRunner(controller=controller)

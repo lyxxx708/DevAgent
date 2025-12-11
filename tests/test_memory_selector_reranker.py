@@ -62,12 +62,12 @@ def test_selector_with_vector_prioritizes_closest() -> None:
             store.upsert_item(item)
         vector_store.add(list(vectors.keys()), list(vectors.values()))
 
-    profile = SelectorProfile(weights={}, per_kind_limit={}, recency_window=None)
-    selected = selector.select(profile=profile, filters={}, query_vector=[0.1, 0.1])
-    assert selected[0].id == "close"
+        profile = SelectorProfile(weights={}, per_kind_limit={}, recency_window=None)
+        selected = selector.select(profile=profile, filters={}, query_vector=[0.1, 0.1])
+        assert selected[0].id == "close"
 
 
-def test_selector_vector_empty_results_keep_candidates() -> None:
+def test_selector_vector_fallback_preserves_candidates_when_no_results() -> None:
     from infra.vector_store import VectorStore
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -84,9 +84,41 @@ def test_selector_vector_empty_results_keep_candidates() -> None:
             store.upsert_item(item)
 
         profile = SelectorProfile(weights={}, per_kind_limit={}, recency_window=None)
-        selected = selector.select(profile=profile, filters={}, query_vector=[0.0, 0.0])
+        selected = selector.select(profile=profile, filters={}, query_vector=[1.0, 1.0])
 
         assert len(selected) == 2
+
+
+def test_selector_vector_partial_index_keeps_all_candidates() -> None:
+    from infra.vector_store import VectorStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store_path = os.path.join(tmpdir, "memory.db")
+        store = MemoryStore(db_path=store_path)
+        vector_store = VectorStore(dim=2, use_faiss=False)
+        selector = MemorySelector(store=store, vector_store=vector_store)
+
+        items = [
+            _make_item("a", "run_config", "src/a.py", 1.0),
+            _make_item("b", "run_config", "src/b.py", 1.0),
+            _make_item("c", "run_config", "src/c.py", 1.0),
+        ]
+        vectors = {
+            "a": [0.0, 0.0],
+            "b": [1.0, 1.0],
+            # "c" intentionally omitted from vector index
+        }
+        for item in items:
+            store.upsert_item(item)
+        vector_store.add(list(vectors.keys()), list(vectors.values()))
+
+        profile = SelectorProfile(weights={}, per_kind_limit={}, recency_window=None)
+        selected = selector.select(profile=profile, filters={}, query_vector=[0.1, 0.1])
+
+        assert {itm.id for itm in selected} == {"a", "b", "c"}
+        assert selected[0].id == "a"
+        assert selected[1].id == "b"
+        assert selected[2].id == "c"
 
 
 def test_reranker_prefers_recent_and_boosts_dimensions() -> None:
@@ -143,3 +175,25 @@ def test_reranker_prefer_recent_toggle_changes_order() -> None:
 
     reordered_no_recent = reranker.rerank(items, RerankHints(boost_dimensions=None, diversity_over=None, prefer_recent=False))
     assert reordered_no_recent[0].id == "old"
+
+
+def test_selector_weights_prioritize_kinds() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store_path = os.path.join(tmpdir, "memory.db")
+        store = MemoryStore(db_path=store_path)
+        selector = MemorySelector(store=store, vector_store=None)
+
+        # Created_at values ensure recency alone would pick run_config, but weights bias toward error_pattern.
+        items = [
+            _make_item("err", "error_pattern", "src/err.py", created_at=1.0),
+            _make_item("run", "run_config", "src/run.py", created_at=10.0),
+        ]
+        for item in items:
+            store.upsert_item(item)
+
+        profile = SelectorProfile(weights={"error_pattern": 1.0, "run_config": 0.0}, per_kind_limit={}, recency_window=None)
+        selected = selector.select(profile=profile, filters={})
+
+        assert selected
+        assert selected[0].kind == "error_pattern"
+        assert {itm.kind for itm in selected} == {"error_pattern", "run_config"}
