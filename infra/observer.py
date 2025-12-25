@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable, TypeVar
+
+from pydantic import BaseModel
 
 from schemas.core import Event
 from store.event_store import EventStore
 from store.trace_ledger import TraceEntry, TraceLedger
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class UnifiedObserver:
@@ -19,6 +23,17 @@ class UnifiedObserver:
     def record_trace(self, entry: TraceEntry) -> None:
         if self.trace_ledger is not None:
             self.trace_ledger.append(entry)
+
+    def perceive(self, context: dict[str, Any], response_model: type[T]) -> T:
+        items = context.get("items")
+        ranked_ids: list[str] = []
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    item_id = item.get("id")
+                    if isinstance(item_id, str):
+                        ranked_ids.append(item_id)
+        return response_model(ranked_ids=ranked_ids)
 
 
 class NullObserver:
