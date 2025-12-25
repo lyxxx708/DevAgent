@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import instructor
+import openai
+import orjson
+
+from config.settings import settings
 from core.interpret import interpret
 from infra.observer import UnifiedObserver
 from infra.vector_store import VectorStore
@@ -9,7 +14,7 @@ from memory.ingest import MemoryIngestPipeline
 from memory.reranker import MemoryReranker
 from memory.selector import MemorySelector
 from memory.store import MemoryStore
-from schemas.core import Event, Program, State
+from schemas.core import Event, GeneratedInstructions, Instruction, Program, State
 from schemas.meta import FocusSpec, RerankHints, SelectorProfile
 from schemas.views import (
     AgentHints,
@@ -40,6 +45,13 @@ class DevAgent:
         self.reranker = MemoryReranker()
         self.focus_builder = FocusViewBuilder(selector=self.selector, reranker=self.reranker)
         self.baseline_focus_inferer = BaselineFocusInferer()
+        self.model_name = settings.llm_model_main
+        self.llm = instructor.from_openai(
+            openai.OpenAI(
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
+            ),
+        )
 
     def run_step(
         self,
@@ -112,3 +124,75 @@ class DevAgent:
         )
 
         return new_state, events, decision_input
+
+    def devagent_step(self, view: DecisionInputView) -> Program:
+        if view.mode != DevAgentMode.BOOTSTRAP_LLM_HEAVY:
+            return Program(instructions=[])
+
+        prompt_context = self._build_prompt_context(view)
+        response = self.llm.chat.completions.create(
+            model=self.model_name,
+            response_model=GeneratedInstructions,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are DevAgent. Produce a list of RUN or EDIT instructions "
+                        "as structured output. RUN payload must include {\"cmd\": str}. "
+                        "EDIT payload must include {\"file_path\": str, \"content\": str}."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": prompt_context,
+                },
+            ],
+        )
+        instructions: list[Instruction] = []
+        for generated in response.instructions:
+            payload = dict(generated.payload or {})
+            if generated.kind == "RUN":
+                cmd = payload.get("cmd")
+                if isinstance(cmd, str) and cmd.strip():
+                    instructions.append(Instruction(kind="RUN", payload={"cmd": cmd}))
+            elif generated.kind == "EDIT":
+                file_path = payload.get("file_path")
+                if isinstance(file_path, str) and file_path.strip():
+                    content = payload.get("content", "")
+                    instructions.append(
+                        Instruction(
+                            kind="EDIT",
+                            payload={"file_path": file_path, "content": str(content)},
+                        ),
+                    )
+
+        return Program(instructions=instructions)
+
+    def _build_prompt_context(self, view: DecisionInputView) -> str:
+        budget_hint = view.token_budget_hint or 2000
+        max_chars = max(1000, budget_hint * 4)
+        context: dict[str, Any] = {
+            "goal": view.goal_view.model_dump(),
+            "state": view.state_view.model_dump(),
+            "focus": view.focus_view.model_dump(),
+            "memory": {
+                "items": [],
+                "stats": view.memory_view.stats.model_dump()
+                if view.memory_view.stats
+                else None,
+            },
+            "hints": view.hints.model_dump(),
+        }
+
+        snippet_limit = 400
+        for item in view.memory_view.items:
+            item_payload = item.model_dump()
+            snippet = item_payload.get("snippet", "")
+            if isinstance(snippet, str) and len(snippet) > snippet_limit:
+                item_payload["snippet"] = f"{snippet[:snippet_limit]}..."
+            context["memory"]["items"].append(item_payload)
+            if len(orjson.dumps(context)) > max_chars:
+                context["memory"]["items"].pop()
+                break
+
+        return orjson.dumps(context, option=orjson.OPT_INDENT_2).decode("utf-8")
