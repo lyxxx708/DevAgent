@@ -37,7 +37,7 @@ class DevAgent:
         self.vector_store = vector_store
         self.ingest_pipeline = MemoryIngestPipeline(memory_store)
         self.selector = MemorySelector(store=memory_store, vector_store=vector_store)
-        self.reranker = MemoryReranker()
+        self.reranker = MemoryReranker(observer=observer)
         self.focus_builder = FocusViewBuilder(selector=self.selector, reranker=self.reranker)
         self.baseline_focus_inferer = BaselineFocusInferer()
 

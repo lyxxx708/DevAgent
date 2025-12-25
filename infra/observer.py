@@ -2,9 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
+from pydantic import BaseModel
+
+import instructor
+from openai import OpenAI
+from pydantic import BaseModel
+
+from config.settings import settings
 from schemas.core import Event
 from store.event_store import EventStore
 from store.trace_ledger import TraceEntry, TraceLedger
+
+T = TypeVar("T", bound=BaseModel)
 
 
 Perceiver = Callable[[dict[str, Any]], dict[str, Any] | None]
