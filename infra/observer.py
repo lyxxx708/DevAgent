@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Iterable, Type
+from typing import Any, Iterable, TypeVar
+
+from pydantic import BaseModel
 
 import instructor
 from openai import OpenAI
@@ -10,6 +12,8 @@ from config.settings import settings
 from schemas.core import Event
 from store.event_store import EventStore
 from store.trace_ledger import TraceEntry, TraceLedger
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class UnifiedObserver:
@@ -29,26 +33,16 @@ class UnifiedObserver:
         if self.trace_ledger is not None:
             self.trace_ledger.append(entry)
 
-    def perceive(
-        self,
-        instruction: str,
-        response_model: Type[BaseModel],
-        context_text: str = "",
-        temperature: float = 0.0,
-    ) -> BaseModel:
-        if self.client is None:
-            raise RuntimeError("Observer LLM client is not configured; set settings.llm_api_key to use perceive().")
-
-        messages = [{"role": "system", "content": instruction}]
-        if context_text:
-            messages.append({"role": "user", "content": context_text})
-
-        return self.client.chat.completions.create(
-            model=settings.llm_model_observer,
-            messages=messages,
-            temperature=temperature,
-            response_model=response_model,
-        )
+    def perceive(self, context: dict[str, Any], response_model: type[T]) -> T:
+        items = context.get("items")
+        ranked_ids: list[str] = []
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    item_id = item.get("id")
+                    if isinstance(item_id, str):
+                        ranked_ids.append(item_id)
+        return response_model(ranked_ids=ranked_ids)
 
 
 class NullObserver:
