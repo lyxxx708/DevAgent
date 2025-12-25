@@ -56,10 +56,12 @@ class DevAgent:
         rerank_hints: RerankHints | None = None,
     ) -> tuple[State, list[Event], DecisionInputView]:
         """Run one DevAgent S/F/T cycle and return the new state, emitted events, and decision context."""
-        new_state, events = interpret(state, program, job_id=job_id, step_id=start_step_id)
-        self.observer.record_events(events)
-
-        self.ingest_pipeline.ingest(events)
+        new_state, events = self.execute_program(
+            state=state,
+            program=program,
+            job_id=job_id,
+            start_step_id=start_step_id,
+        )
 
         state_view = StateView(
             git_head=new_state.git_head,
@@ -112,3 +114,22 @@ class DevAgent:
         )
 
         return new_state, events, decision_input
+
+    def devagent_step(self, decision_input: DecisionInputView, prompt: str) -> Program:
+        """Generate a Program from DecisionInputView and a text-only prompt."""
+        _ = decision_input
+        _ = prompt
+        return Program(instructions=[])
+
+    def execute_program(
+        self,
+        *,
+        state: State,
+        program: Program,
+        job_id: str,
+        start_step_id: int,
+    ) -> tuple[State, list[Event]]:
+        new_state, events = interpret(state, program, job_id=job_id, step_id=start_step_id)
+        self.observer.record_events(events)
+        self.ingest_pipeline.ingest(events)
+        return new_state, events
