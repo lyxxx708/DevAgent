@@ -20,6 +20,15 @@ class Instruction(BaseModel):
     payload: dict[str, Any]
 
 
+class GeneratedInstruction(BaseModel):
+    kind: Literal["RUN", "EDIT"]
+    payload: dict[str, Any]
+
+
+class GeneratedInstructions(BaseModel):
+    instructions: list[GeneratedInstruction]
+
+
 class Program(BaseModel):
     instructions: list[Instruction]
 
@@ -38,6 +47,8 @@ __all__ = [
     "StateDiagnostics",
     "State",
     "Instruction",
+    "GeneratedInstruction",
+    "GeneratedInstructions",
     "Program",
     "Event",
 ]
