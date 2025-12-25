@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from pydantic import BaseModel
+
+from infra.observer import UnifiedObserver
 from memory.selector import MemorySelector
 from memory.reranker import MemoryReranker
 from schemas.core import Event
@@ -34,13 +37,67 @@ class BaselineFocusInferer:
 
 
 class LLMFocusInferer:
-    """Placeholder for a future LLM-based focus inferrer."""
+    """LLM-based focus inferrer that delegates to a UnifiedObserver."""
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, observer: UnifiedObserver, baseline: BaselineFocusInferer | None = None) -> None:
+        self.observer = observer
+        self.baseline = baseline
 
-    def infer(self, file_tree: str, failing_logs: str, focus_spec: FocusSpec | None = None) -> FocusView:
-        raise NotImplementedError("LLMFocusInferer is not implemented yet in this environment.")
+    def infer(
+        self,
+        file_tree: str,
+        failing_logs: str,
+        focus_spec: FocusSpec | None = None,
+        *,
+        events: Iterable[Event] | None = None,
+    ) -> FocusView:
+        if focus_spec is None:
+            focus_spec = FocusSpec(task_type="unknown", modules=[], only_failing_tests=True, max_focus_files=20)
+
+        context_parts = []
+        if file_tree.strip():
+            context_parts.append(f"File tree:\n{file_tree.strip()}")
+        if failing_logs.strip():
+            context_parts.append(f"Failing logs:\n{failing_logs.strip()}")
+        context = "\n\n".join(context_parts).strip()
+
+        task_description = (
+            "Review the repository file tree and failing test logs to identify likely culprit files and relevant tests. "
+            "Return reasoning, culprit_files, and relevant_tests."
+        )
+
+        try:
+            response = self.observer.perceive(
+                task=task_description,
+                context=context,
+                response_model=FocusResult,
+            )
+            if isinstance(response, FocusResult):
+                result = response
+            elif isinstance(response, dict):
+                result = FocusResult(**response)
+            else:
+                raise TypeError("Unsupported response type from observer.perceive")
+
+            files = list(dict.fromkeys(result.culprit_files))
+            tests = list(dict.fromkeys(result.relevant_tests))
+            if focus_spec.max_focus_files is not None:
+                files = files[: focus_spec.max_focus_files]
+            return FocusView(files=files, modules=[], tests=tests)
+        except Exception:
+            if self.baseline is not None and events is not None:
+                fallback_view = self.baseline.infer(events)
+                files = fallback_view.files
+                if focus_spec.max_focus_files is not None:
+                    files = files[: focus_spec.max_focus_files]
+                return FocusView(files=files, modules=fallback_view.modules, tests=fallback_view.tests)
+            return FocusView(files=[], modules=[], tests=[])
+
+
+class FocusResult(BaseModel):
+    reasoning: str
+    culprit_files: list[str]
+    relevant_tests: list[str]
 
 
 class FocusViewBuilder:
