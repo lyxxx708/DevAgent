@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import instructor
+import openai
+import orjson
+
+from config.settings import settings
 from core.interpret import interpret
 from infra.observer import UnifiedObserver
 from infra.vector_store import VectorStore
@@ -9,7 +14,7 @@ from memory.ingest import MemoryIngestPipeline
 from memory.reranker import MemoryReranker
 from memory.selector import MemorySelector
 from memory.store import MemoryStore
-from schemas.core import Event, Program, State
+from schemas.core import Event, GeneratedInstructions, Instruction, Program, State
 from schemas.meta import FocusSpec, RerankHints, SelectorProfile
 from schemas.views import (
     AgentHints,
@@ -37,9 +42,16 @@ class DevAgent:
         self.vector_store = vector_store
         self.ingest_pipeline = MemoryIngestPipeline(memory_store)
         self.selector = MemorySelector(store=memory_store, vector_store=vector_store)
-        self.reranker = MemoryReranker()
+        self.reranker = MemoryReranker(observer=observer)
         self.focus_builder = FocusViewBuilder(selector=self.selector, reranker=self.reranker)
         self.baseline_focus_inferer = BaselineFocusInferer()
+        self.model_name = settings.llm_model_main
+        self.llm = instructor.from_openai(
+            openai.OpenAI(
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
+            ),
+        )
 
     def run_step(
         self,

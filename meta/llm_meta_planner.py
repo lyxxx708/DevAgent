@@ -8,15 +8,18 @@ and selection policies based on the goal type and simple repository signals.
 """
 
 import time
-from typing import Dict
+from typing import Any, Dict
 
-from schemas.meta import (
-    FocusSpec,
-    MetaInputView,
-    MetaPlan,
-    RerankHints,
-    SelectorProfile,
-)
+from pydantic import BaseModel, ValidationError
+
+from infra.observer import UnifiedObserver
+from schemas.meta import FocusSpec, MetaInputView, MetaPlan, RerankHints, SelectorProfile
+
+
+class MetaPlanResult(BaseModel):
+    focus_spec: FocusSpec
+    selector_profile: SelectorProfile
+    rerank_hints: RerankHints | None = None
 
 
 class LLMMetaPlanner:
@@ -30,7 +33,38 @@ class LLMMetaPlanner:
     present.
     """
 
+    def __init__(self, observer: UnifiedObserver | None = None) -> None:
+        self.observer = observer
+
     def propose_plan(self, meta_input: MetaInputView) -> MetaPlan:
+        payload = self._build_perception_payload(meta_input)
+        result = self._request_llm_plan(payload)
+        if result is not None:
+            return MetaPlan(
+                focus_spec=result.focus_spec,
+                selector_profile=result.selector_profile,
+                rerank_hints=result.rerank_hints,
+            )
+        return self._fallback_plan(meta_input)
+
+    def _build_perception_payload(self, meta_input: MetaInputView) -> dict[str, Any]:
+        return {
+            "kind": "meta_plan_request",
+            "meta_input": meta_input.model_dump(),
+        }
+
+    def _request_llm_plan(self, payload: dict[str, Any]) -> MetaPlanResult | None:
+        if self.observer is None:
+            return None
+        response = self.observer.perceive(payload)
+        if response is None:
+            return None
+        try:
+            return MetaPlanResult.model_validate(response)
+        except ValidationError:
+            return None
+
+    def _fallback_plan(self, meta_input: MetaInputView) -> MetaPlan:
         goal_type = meta_input.goal_view.task_type
 
         only_failing_tests = goal_type == "fix_failures"
@@ -76,4 +110,4 @@ class LLMMetaPlanner:
         )
 
 
-__all__ = ["LLMMetaPlanner"]
+__all__ = ["LLMMetaPlanner", "MetaPlanResult"]
